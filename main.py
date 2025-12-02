@@ -10,26 +10,28 @@ import tensorflow as tf
 app = FastAPI()
 
 # ===========================
-# LOAD STRONGER MODEL
+# LOAD EFFICIENTNET B0
 # ===========================
-# EfficientNet B0 Feature Extractor (better than MobileNet)
 extractor = hub.KerasLayer(
     "https://tfhub.dev/tensorflow/efficientnet/b0/feature-vector/1",
     input_shape=(224, 224, 3),
     trainable=False
 )
 
+# EfficientNet preprocessing values
+MEAN = np.array([0.485, 0.456, 0.406])
+STD = np.array([0.229, 0.224, 0.225])
 
+
+# -----------------------------------------------------------  
+# BASE64 → TENSOR  
 # -----------------------------------------------------------
-# BASE64 → NumPy Tensor
-# -----------------------------------------------------------
-def decode_base64_image(b64_string: str):
+def decode_image(b64_string: str):
     try:
         if b64_string.startswith("data:image"):
             b64_string = b64_string.split(",")[-1]
 
         b64_string = b64_string.strip()
-
         missing_padding = len(b64_string) % 4
         if missing_padding != 0:
             b64_string += "=" * (4 - missing_padding)
@@ -39,11 +41,13 @@ def decode_base64_image(b64_string: str):
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
         if img is None:
-            raise ValueError("Image decode failed")
+            raise ValueError("Failed to decode")
 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (224, 224))
+
         img = img.astype("float32") / 255.0
+        img = (img - MEAN) / STD   # EfficientNet normalization
 
         return np.expand_dims(img, axis=0)
 
@@ -51,80 +55,43 @@ def decode_base64_image(b64_string: str):
         raise ValueError(f"Base64 decode error: {e}")
 
 
+# -----------------------------------------------------------  
+# L2 NORMALIZATION  
 # -----------------------------------------------------------
-# L2 NORMALIZATION FUNCTION
-# Makes embeddings more accurate and stable
-# -----------------------------------------------------------
-def l2_normalize(v):
-    return v / np.linalg.norm(v, axis=1, keepdims=True)
+def l2_norm(v):
+    return v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-10)
 
 
-# -----------------------------------------------------------
-# API ROUTE
+# -----------------------------------------------------------  
+# FACE / PET MATCHING ROUTE  
 # -----------------------------------------------------------
 @app.post("/compare")
-@app.post("/compare/")
 async def compare_images(payload: dict):
     try:
         if "image1" not in payload or "image2" not in payload:
-            return JSONResponse({"error": "Missing image1 or image2"}, 400)
+            return JSONResponse({"error": "Missing image1/image2"}, 400)
 
-        # Decode images
-        img1 = decode_base64_image(payload["image1"])
-        img2 = decode_base64_image(payload["image2"])
+        img1 = decode_image(payload["image1"])
+        img2 = decode_image(payload["image2"])
 
-        # Extract features
         emb1 = extractor(img1).numpy()
         emb2 = extractor(img2).numpy()
 
-        # Normalize vectors
-        emb1 = l2_normalize(emb1)
-        emb2 = l2_normalize(emb2)
+        emb1 = l2_norm(emb1)
+        emb2 = l2_norm(emb2)
 
-        # Compute cosine similarity
+        # Similarity metrics
         cos_sim = float(cosine_similarity(emb1, emb2)[0][0])
+        dist = float(np.linalg.norm(emb1 - emb2))
 
-        # Euclidean distance (lower = similar)
-        euclidean_dist = float(np.linalg.norm(emb1 - emb2))
-
-        # FINAL DECISION
-        # Must satisfy BOTH strict conditions for a match
-        match = cos_sim > 0.80 and euclidean_dist < 0.75
+        # Improved thresholds (tested for animals)
+        match = cos_sim > 0.65 and dist < 1.15
 
         return {
             "match": match,
             "cosine_similarity": cos_sim,
-            "euclidean_distance": euclidean_dist,
+            "distance": dist,
         }
 
     except Exception as e:
-        print("🔥 SERVER ERROR:", e)
         return JSONResponse({"error": str(e)}, 500)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
