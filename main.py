@@ -85,7 +85,10 @@ async def compare_images(payload: dict):
         dist = float(np.linalg.norm(emb1 - emb2))
 
         # Improved thresholds (tested for animals)
-        match = cos_sim > 0.65 and dist < 1.15
+        if cos_sim > 0.80 and dist < 0.75:
+         match = True
+        else:
+         match = False
 
         return {
             "match": match,
