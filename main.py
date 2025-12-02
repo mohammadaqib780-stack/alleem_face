@@ -89,7 +89,7 @@ async def compare_images(payload: dict):
 
         # FINAL DECISION
         # Must satisfy BOTH strict conditions for a match
-        match = cos_sim > 0.80 and euclidean_dist < 0.85
+        match = cos_sim > 0.80 and euclidean_dist < 0.75
 
         return {
             "match": match,
