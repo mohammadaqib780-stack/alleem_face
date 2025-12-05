@@ -1,7 +1,10 @@
 fastapi
 uvicorn
-tensorflow
-tensorflow-hub
-opencv-python-headless
-scikit-learn
 numpy
+opencv-python
+scikit-learn
+torch
+torchvision
+torchaudio
+transformers
+Pillow
